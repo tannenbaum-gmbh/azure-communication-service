@@ -24,12 +24,12 @@ on:
         type: string
         default: 'westeurope'
       communication_service_name:
-        description: 'Override Azure Communication Service name (leave blank for deterministic unique default)'
+        description: 'Override Azure Communication Service name (leave blank for deterministic, subscription-scoped default)'
         required: false
         type: string
         default: ''
       email_service_name:
-        description: 'Override Email Communication Service name (leave blank for deterministic unique default)'
+        description: 'Override Email Communication Service name (leave blank for deterministic, subscription-scoped default)'
         required: false
         type: string
         default: ''
@@ -72,11 +72,14 @@ jobs:
 
           SUBSCRIPTION_ID=$(az account show --query id --output tsv)
           SUBSCRIPTION_HASH=$(printf '%s' "$SUBSCRIPTION_ID" | sha256sum | awk '{print $1}')
-          # Convert three hash bytes to stable lowercase letters (a-z).
+          # Convert six hash bytes to stable lowercase letters (a-z).
           NAME_SUFFIX="$(
             to_letter "$((16#${SUBSCRIPTION_HASH:0:2} % 26))"
             to_letter "$((16#${SUBSCRIPTION_HASH:2:2} % 26))"
             to_letter "$((16#${SUBSCRIPTION_HASH:4:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:6:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:8:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:10:2} % 26))"
           )"
 
           DEFAULT_COMMUNICATION_SERVICE_NAME="acs-playground-${NAME_SUFFIX}"
