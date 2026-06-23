@@ -70,7 +70,9 @@ jobs:
             printf "\\$(printf '%03o' "$((97 + $1))")"
           }
 
-          SUBSCRIPTION_HASH=$(printf '%s' "${{ secrets.AZURE_SUBSCRIPTION_ID }}" | sha256sum | awk '{print $1}')
+          SUBSCRIPTION_ID=$(az account show --query id --output tsv)
+          SUBSCRIPTION_HASH=$(printf '%s' "$SUBSCRIPTION_ID" | sha256sum | awk '{print $1}')
+          # Convert three hash bytes to stable lowercase letters (a-z).
           NAME_SUFFIX="$(
             to_letter "$((16#${SUBSCRIPTION_HASH:0:2} % 26))"
             to_letter "$((16#${SUBSCRIPTION_HASH:2:2} % 26))"
