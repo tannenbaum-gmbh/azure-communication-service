@@ -83,7 +83,7 @@ az deployment group create \
   --name acs-deployment \
   --resource-group rg-acs-playground \
   --template-file infra/main.bicep \
-  --parameters @infra/main.bicepparam
+  --parameters infra/main.bicepparam
 ```
 
 Or trigger the **Deploy Azure Communication Service** GitHub Actions workflow from the Actions tab.
