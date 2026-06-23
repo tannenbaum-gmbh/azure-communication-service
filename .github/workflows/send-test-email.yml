@@ -66,6 +66,7 @@ jobs:
           set -euo pipefail
 
           to_letter() {
+            # Maps 0-25 to a-z so we can build a deterministic six-letter suffix.
             printf "\\$(printf '%03o' "$((97 + $1))")"
           }
 
