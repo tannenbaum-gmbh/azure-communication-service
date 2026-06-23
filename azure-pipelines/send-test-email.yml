@@ -1,0 +1,118 @@
+# Send Test Email – Azure Pipeline
+#
+# Sends a test email using Azure Communication Service.
+# Authenticates with Azure using OIDC (Workload Identity Federation) via a
+# service connection configured in Azure DevOps.
+#
+# Prerequisites:
+#   1. An Azure DevOps service connection using "Workload identity federation"
+#      (OIDC). Set its name in the pipeline variable AZURE_SERVICE_CONNECTION.
+#   2. The Azure Communication Service must already be deployed.
+#   3. The sender address must use the Azure Managed Domain:
+#        DoNotReply@<emailServiceName>.azurecomm.net
+#
+# Pipeline configuration:
+# - Pipeline variable (set in Azure DevOps → Pipelines → Edit → Variables):
+#     AZURE_SERVICE_CONNECTION – Name of the Azure DevOps service connection.
+# - Run-time parameters (prompted when you run the pipeline):
+#     resourceGroup, communicationServiceName, senderAddress, recipientEmail, subject
+#   RECIPIENT_EMAIL              – Recipient email address for the test.
+#
+# This pipeline is triggered manually only (trigger: none).
+
+trigger: none
+
+parameters:
+  - name: resourceGroup
+    displayName: 'Azure Resource Group'
+    type: string
+    default: 'rg-acs-playground'
+
+  - name: communicationServiceName
+    displayName: 'Azure Communication Service name'
+    type: string
+    default: 'acs-playground'
+
+  - name: senderAddress
+    displayName: 'Sender email address'
+    type: string
+    default: 'DoNotReply@ecs-playground.azurecomm.net'
+
+  - name: recipientEmail
+    displayName: 'Recipient email address'
+    type: string
+
+  - name: subject
+    displayName: 'Email subject'
+    type: string
+    default: 'Test Email from Azure Communication Service'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Install Azure Communication CLI extension'
+    inputs:
+      azureSubscription: $(AZURE_SERVICE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az extension add --name communication --yes
+
+  - task: AzureCLI@2
+    displayName: 'Send test email via Azure Communication Service'
+    inputs:
+      azureSubscription: $(AZURE_SERVICE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      # addSpnToEnvironment exposes the OIDC token so the CLI can authenticate
+      # without storing a client secret.
+      addSpnToEnvironment: true
+      inlineScript: |
+        set -euo pipefail
+
+        # Retrieve the ACS connection string
+        echo "Retrieving connection string for '${{ parameters.communicationServiceName }}'..."
+        CONNECTION_STRING=$(az communication list-key \
+          --name "${{ parameters.communicationServiceName }}" \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --query primaryConnectionString \
+          --output tsv)
+
+        if [ -z "$CONNECTION_STRING" ]; then
+          echo "##vso[task.logissue type=error]Could not retrieve connection string. Verify the service name and resource group."
+          exit 1
+        fi
+
+        # Mask the connection string in pipeline logs
+        echo "##vso[task.setvariable variable=CONNECTION_STRING;issecret=true]$CONNECTION_STRING"
+
+        # Send the test email using a heredoc for the body
+        read -r -d '' EMAIL_BODY << HEREDOC || true
+Hello,
+
+This is a test email sent from Azure Communication Service.
+
+Pipeline: ${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECT}/_build/results?buildId=${BUILD_BUILDID}
+Triggered by: ${BUILD_REQUESTEDFOR}
+Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+If you received this message, the Azure Communication Service email feature is working correctly.
+
+Regards,
+Azure Communication Service Playground
+HEREDOC
+
+        echo "Sending test email to '${{ parameters.recipientEmail }}'..."
+        az communication email send \
+          --connection-string "$CONNECTION_STRING" \
+          --sender "${{ parameters.senderAddress }}" \
+          --to "${{ parameters.recipientEmail }}" \
+          --subject "${{ parameters.subject }}" \
+          --text "$EMAIL_BODY"
+
+        echo "Test email sent successfully."
+        echo "  From:    ${{ parameters.senderAddress }}"
+        echo "  To:      ${{ parameters.recipientEmail }}"
+        echo "  Subject: ${{ parameters.subject }}"
