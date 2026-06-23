@@ -9,10 +9,7 @@ name: Deploy Azure Communication Service
 #   AZURE_TENANT_ID      – Azure AD / Entra ID tenant ID.
 #   AZURE_SUBSCRIPTION_ID – Target Azure subscription ID.
 #
-# Prerequisites (GitHub repository variables, optional overrides):
-#   AZURE_RESOURCE_GROUP – Default resource group name (can be overridden at runtime).
-#   AZURE_LOCATION       – Default Azure region (e.g. westeurope).
-
+# Defaults are configured via the workflow_dispatch inputs below; override them when triggering the workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -64,27 +61,24 @@ jobs:
             --location "${{ inputs.location }}" \
             --tags environment=playground project=azure-communication-service managedBy=bicep
 
-      - name: Build parameter overrides
-        id: params
-        run: |
-          OVERRIDES=""
-          if [ -n "${{ inputs.communication_service_name }}" ]; then
-            OVERRIDES="$OVERRIDES communicationServiceName=${{ inputs.communication_service_name }}"
-          fi
-          if [ -n "${{ inputs.email_service_name }}" ]; then
-            OVERRIDES="$OVERRIDES emailServiceName=${{ inputs.email_service_name }}"
-          fi
-          echo "overrides=$OVERRIDES" >> "$GITHUB_OUTPUT"
-
       - name: Deploy Bicep template
         id: deploy
         run: |
+          set -euo pipefail
+
+          PARAM_ARGS=(--parameters @infra/main.bicepparam)
+          if [ -n "${{ inputs.communication_service_name }}" ]; then
+            PARAM_ARGS+=(--parameters "communicationServiceName=${{ inputs.communication_service_name }}")
+          fi
+          if [ -n "${{ inputs.email_service_name }}" ]; then
+            PARAM_ARGS+=(--parameters "emailServiceName=${{ inputs.email_service_name }}")
+          fi
+
           az deployment group create \
             --name "acs-deployment-${{ github.run_number }}" \
             --resource-group "${{ inputs.resource_group }}" \
             --template-file infra/main.bicep \
-            --parameters @infra/main.bicepparam \
-            ${{ steps.params.outputs.overrides }} \
+            "${PARAM_ARGS[@]}" \
             --query "properties.outputs" \
             --output json | tee deployment-outputs.json
 

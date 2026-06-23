@@ -11,11 +11,11 @@
 #   3. The sender address must use the Azure Managed Domain:
 #        DoNotReply@<emailServiceName>.azurecomm.net
 #
-# Pipeline variables (set in Azure DevOps → Pipelines → Edit → Variables):
-#   AZURE_SERVICE_CONNECTION     – Name of the Azure DevOps service connection.
-#   AZURE_RESOURCE_GROUP         – Resource group containing the Communication Service.
-#   AZURE_COMMUNICATION_SERVICE  – Name of the Azure Communication Service resource.
-#   SENDER_ADDRESS               – Sender email (e.g. DoNotReply@ecs-playground.azurecomm.net).
+# Pipeline configuration:
+# - Pipeline variable (set in Azure DevOps → Pipelines → Edit → Variables):
+#     AZURE_SERVICE_CONNECTION – Name of the Azure DevOps service connection.
+# - Run-time parameters (prompted when you run the pipeline):
+#     resourceGroup, communicationServiceName, senderAddress, recipientEmail, subject
 #   RECIPIENT_EMAIL              – Recipient email address for the test.
 #
 # This pipeline is triggered manually only (trigger: none).
@@ -89,13 +89,13 @@ steps:
         echo "##vso[task.setvariable variable=CONNECTION_STRING;issecret=true]$CONNECTION_STRING"
 
         # Send the test email using a heredoc for the body
-        read -r -d '' EMAIL_BODY << 'HEREDOC' || true
+        read -r -d '' EMAIL_BODY << HEREDOC || true
 Hello,
 
 This is a test email sent from Azure Communication Service.
 
-Pipeline: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)
-Triggered by: $(Build.RequestedFor)
+Pipeline: ${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECT}/_build/results?buildId=${BUILD_BUILDID}
+Triggered by: ${BUILD_REQUESTEDFOR}
 Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
 If you received this message, the Azure Communication Service email feature is working correctly.
