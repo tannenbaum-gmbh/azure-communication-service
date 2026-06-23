@@ -29,14 +29,14 @@ parameters:
     default: 'rg-acs-playground'
 
   - name: communicationServiceName
-    displayName: 'Azure Communication Service name'
+    displayName: 'Azure Communication Service name (leave blank for deterministic, subscription-scoped default)'
     type: string
-    default: 'acs-playground'
+    default: ''
 
   - name: senderAddress
-    displayName: 'Sender email address'
+    displayName: 'Sender email address (leave blank for DoNotReply@<derived-email-service>.azurecomm.net)'
     type: string
-    default: 'DoNotReply@ecs-playground.azurecomm.net'
+    default: ''
 
   - name: recipientEmail
     displayName: 'Recipient email address'
@@ -72,10 +72,38 @@ steps:
       inlineScript: |
         set -euo pipefail
 
+        to_letter() {
+          printf "\\$(printf '%03o' "$((97 + $1))")"
+        }
+
+        SUBSCRIPTION_ID=$(az account show --query id --output tsv)
+        SUBSCRIPTION_HASH=$(printf '%s' "$SUBSCRIPTION_ID" | sha256sum | awk '{print $1}')
+        NAME_SUFFIX="$(
+          to_letter "$((16#${SUBSCRIPTION_HASH:0:2} % 26))"
+          to_letter "$((16#${SUBSCRIPTION_HASH:2:2} % 26))"
+          to_letter "$((16#${SUBSCRIPTION_HASH:4:2} % 26))"
+          to_letter "$((16#${SUBSCRIPTION_HASH:6:2} % 26))"
+          to_letter "$((16#${SUBSCRIPTION_HASH:8:2} % 26))"
+          to_letter "$((16#${SUBSCRIPTION_HASH:10:2} % 26))"
+        )"
+
+        DEFAULT_COMMUNICATION_SERVICE_NAME="acs-playground-${NAME_SUFFIX}"
+        DEFAULT_EMAIL_SERVICE_NAME="ecs-playground-${NAME_SUFFIX}"
+
+        COMMUNICATION_SERVICE_NAME="${{ parameters.communicationServiceName }}"
+        if [ -z "$COMMUNICATION_SERVICE_NAME" ]; then
+          COMMUNICATION_SERVICE_NAME="$DEFAULT_COMMUNICATION_SERVICE_NAME"
+        fi
+
+        SENDER_ADDRESS="${{ parameters.senderAddress }}"
+        if [ -z "$SENDER_ADDRESS" ]; then
+          SENDER_ADDRESS="DoNotReply@${DEFAULT_EMAIL_SERVICE_NAME}.azurecomm.net"
+        fi
+
         # Retrieve the ACS connection string
-        echo "Retrieving connection string for '${{ parameters.communicationServiceName }}'..."
+        echo "Retrieving connection string for '${COMMUNICATION_SERVICE_NAME}'..."
         CONNECTION_STRING=$(az communication list-key \
-          --name "${{ parameters.communicationServiceName }}" \
+          --name "${COMMUNICATION_SERVICE_NAME}" \
           --resource-group "${{ parameters.resourceGroup }}" \
           --query primaryConnectionString \
           --output tsv)
@@ -107,12 +135,13 @@ HEREDOC
         echo "Sending test email to '${{ parameters.recipientEmail }}'..."
         az communication email send \
           --connection-string "$CONNECTION_STRING" \
-          --sender "${{ parameters.senderAddress }}" \
+          --sender "$SENDER_ADDRESS" \
           --to "${{ parameters.recipientEmail }}" \
           --subject "${{ parameters.subject }}" \
           --text "$EMAIL_BODY"
 
         echo "Test email sent successfully."
-        echo "  From:    ${{ parameters.senderAddress }}"
+        echo "  Service: ${COMMUNICATION_SERVICE_NAME}"
+        echo "  From:    ${SENDER_ADDRESS}"
         echo "  To:      ${{ parameters.recipientEmail }}"
         echo "  Subject: ${{ parameters.subject }}"
