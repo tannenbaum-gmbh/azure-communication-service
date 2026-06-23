@@ -120,8 +120,8 @@ Trigger the **Destroy Azure Communication Service** GitHub Actions workflow (typ
 1. Go to **Actions → Send Test Email → Run workflow**.
 2. Fill in:
    - **Resource group** – e.g. `rg-acs-playground`
-   - **Communication Service name** – e.g. `acs-playground`
-   - **Sender address** – e.g. `DoNotReply@ecs-playground.azurecomm.net`
+   - **Communication Service name** – leave blank to auto-derive `acs-playground-<stable suffix>` (or provide an explicit name)
+   - **Sender address** – leave blank to auto-derive `DoNotReply@ecs-playground-<stable suffix>.azurecomm.net` (or provide an explicit address)
    - **Recipient email** – your email address
 
 ### Via Azure Pipeline

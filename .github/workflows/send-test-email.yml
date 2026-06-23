@@ -21,14 +21,15 @@ on:
         type: string
         default: 'rg-acs-playground'
       communication_service_name:
-        description: 'Azure Communication Service name'
-        required: true
+        description: 'Azure Communication Service name (leave blank for deterministic, subscription-scoped default)'
+        required: false
         type: string
-        default: 'acs-playground'
+        default: ''
       sender_address:
-        description: 'Sender email address (e.g. DoNotReply@ecs-playground.azurecomm.net)'
-        required: true
+        description: 'Sender email address (leave blank for DoNotReply@<derived-email-service>.azurecomm.net)'
+        required: false
         type: string
+        default: ''
       recipient_email:
         description: 'Recipient email address for the test email'
         required: true
@@ -59,11 +60,47 @@ jobs:
       - name: Install Azure Communication CLI extension
         run: az extension add --name communication --yes
 
+      - name: Resolve effective service and sender values
+        id: resolve_defaults
+        run: |
+          set -euo pipefail
+
+          to_letter() {
+            printf "\\$(printf '%03o' "$((97 + $1))")"
+          }
+
+          SUBSCRIPTION_ID=$(az account show --query id --output tsv)
+          SUBSCRIPTION_HASH=$(printf '%s' "$SUBSCRIPTION_ID" | sha256sum | awk '{print $1}')
+          NAME_SUFFIX="$(
+            to_letter "$((16#${SUBSCRIPTION_HASH:0:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:2:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:4:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:6:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:8:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:10:2} % 26))"
+          )"
+
+          DEFAULT_COMMUNICATION_SERVICE_NAME="acs-playground-${NAME_SUFFIX}"
+          DEFAULT_EMAIL_SERVICE_NAME="ecs-playground-${NAME_SUFFIX}"
+
+          COMMUNICATION_SERVICE_NAME="${{ inputs.communication_service_name }}"
+          if [ -z "$COMMUNICATION_SERVICE_NAME" ]; then
+            COMMUNICATION_SERVICE_NAME="$DEFAULT_COMMUNICATION_SERVICE_NAME"
+          fi
+
+          SENDER_ADDRESS="${{ inputs.sender_address }}"
+          if [ -z "$SENDER_ADDRESS" ]; then
+            SENDER_ADDRESS="DoNotReply@${DEFAULT_EMAIL_SERVICE_NAME}.azurecomm.net"
+          fi
+
+          echo "communication_service_name=$COMMUNICATION_SERVICE_NAME" >> "$GITHUB_OUTPUT"
+          echo "sender_address=$SENDER_ADDRESS" >> "$GITHUB_OUTPUT"
+
       - name: Retrieve ACS connection string
         id: get_connection_string
         run: |
           CONNECTION_STRING=$(az communication list-key \
-            --name "${{ inputs.communication_service_name }}" \
+            --name "${{ steps.resolve_defaults.outputs.communication_service_name }}" \
             --resource-group "${{ inputs.resource_group }}" \
             --query primaryConnectionString \
             --output tsv)
@@ -97,7 +134,7 @@ jobs:
           BODY="${EMAIL_BODY//__TIMESTAMP__/$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
           az communication email send \
             --connection-string "$CONNECTION_STRING" \
-            --sender "${{ inputs.sender_address }}" \
+            --sender "${{ steps.resolve_defaults.outputs.sender_address }}" \
             --to "${{ inputs.recipient_email }}" \
             --subject "${{ inputs.subject }}" \
             --text "$BODY"
@@ -108,7 +145,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **From** | ${{ inputs.sender_address }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **From** | ${{ steps.resolve_defaults.outputs.sender_address }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **To** | ${{ inputs.recipient_email }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Subject** | ${{ inputs.subject }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Service** | ${{ inputs.communication_service_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | ${{ steps.resolve_defaults.outputs.communication_service_name }} |" >> "$GITHUB_STEP_SUMMARY"
