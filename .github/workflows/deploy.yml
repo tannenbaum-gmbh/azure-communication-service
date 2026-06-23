@@ -1,0 +1,99 @@
+name: Deploy Azure Communication Service
+
+# Deploy (or re-deploy) the Azure Communication Service infrastructure.
+# Authenticates with Azure using OIDC – no long-lived secrets required.
+#
+# Prerequisites (GitHub repository secrets):
+#   AZURE_CLIENT_ID      – Application (client) ID of the Entra ID app registration
+#                          that has a federated credential for this workflow.
+#   AZURE_TENANT_ID      – Azure AD / Entra ID tenant ID.
+#   AZURE_SUBSCRIPTION_ID – Target Azure subscription ID.
+#
+# Prerequisites (GitHub repository variables, optional overrides):
+#   AZURE_RESOURCE_GROUP – Default resource group name (can be overridden at runtime).
+#   AZURE_LOCATION       – Default Azure region (e.g. westeurope).
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: 'Azure Resource Group name'
+        required: true
+        type: string
+        default: 'rg-acs-playground'
+      location:
+        description: 'Azure region for the resource group (e.g. westeurope)'
+        required: false
+        type: string
+        default: 'westeurope'
+      communication_service_name:
+        description: 'Override Azure Communication Service name (leave blank for param-file default)'
+        required: false
+        type: string
+        default: ''
+      email_service_name:
+        description: 'Override Email Communication Service name (leave blank for param-file default)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  id-token: write   # Required for OIDC token exchange
+  contents: read    # Required to checkout the repository
+
+jobs:
+  deploy:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create or verify Resource Group
+        run: |
+          az group create \
+            --name "${{ inputs.resource_group }}" \
+            --location "${{ inputs.location }}" \
+            --tags environment=playground project=azure-communication-service managedBy=bicep
+
+      - name: Build parameter overrides
+        id: params
+        run: |
+          OVERRIDES=""
+          if [ -n "${{ inputs.communication_service_name }}" ]; then
+            OVERRIDES="$OVERRIDES communicationServiceName=${{ inputs.communication_service_name }}"
+          fi
+          if [ -n "${{ inputs.email_service_name }}" ]; then
+            OVERRIDES="$OVERRIDES emailServiceName=${{ inputs.email_service_name }}"
+          fi
+          echo "overrides=$OVERRIDES" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Bicep template
+        id: deploy
+        run: |
+          az deployment group create \
+            --name "acs-deployment-${{ github.run_number }}" \
+            --resource-group "${{ inputs.resource_group }}" \
+            --template-file infra/main.bicep \
+            --parameters @infra/main.bicepparam \
+            ${{ steps.params.outputs.overrides }} \
+            --query "properties.outputs" \
+            --output json | tee deployment-outputs.json
+
+      - name: Show deployment outputs
+        run: |
+          echo "### Deployment Outputs" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat deployment-outputs.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          SENDER_DOMAIN=$(jq -r '.senderDomain.value // "N/A"' deployment-outputs.json)
+          echo "**Sender domain:** \`DoNotReply@${SENDER_DOMAIN}\`" >> "$GITHUB_STEP_SUMMARY"

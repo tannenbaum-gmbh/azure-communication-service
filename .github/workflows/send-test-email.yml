@@ -1,0 +1,114 @@
+name: Send Test Email
+
+# Sends a test email using Azure Communication Service.
+# Authenticates with Azure using OIDC – no long-lived secrets required.
+#
+# Prerequisites (GitHub repository secrets):
+#   AZURE_CLIENT_ID       – Application (client) ID of the Entra ID app registration.
+#   AZURE_TENANT_ID       – Azure AD / Entra ID tenant ID.
+#   AZURE_SUBSCRIPTION_ID – Target Azure subscription ID.
+#
+# The Azure Communication Service must already be deployed (run the deploy workflow first).
+# The sender address must use the Azure Managed Domain:
+#   DoNotReply@<emailServiceName>.azurecomm.net
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: 'Azure Resource Group containing the Communication Service'
+        required: true
+        type: string
+        default: 'rg-acs-playground'
+      communication_service_name:
+        description: 'Azure Communication Service name'
+        required: true
+        type: string
+        default: 'acs-playground'
+      sender_address:
+        description: 'Sender email address (e.g. DoNotReply@ecs-playground.azurecomm.net)'
+        required: true
+        type: string
+      recipient_email:
+        description: 'Recipient email address for the test email'
+        required: true
+        type: string
+      subject:
+        description: 'Email subject line'
+        required: false
+        type: string
+        default: 'Test Email from Azure Communication Service'
+
+permissions:
+  id-token: write   # Required for OIDC token exchange
+  contents: read    # Required to checkout the repository
+
+jobs:
+  send-email:
+    name: Send Test Email
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Communication CLI extension
+        run: az extension add --name communication --yes
+
+      - name: Retrieve ACS connection string
+        id: get_connection_string
+        run: |
+          CONNECTION_STRING=$(az communication list-key \
+            --name "${{ inputs.communication_service_name }}" \
+            --resource-group "${{ inputs.resource_group }}" \
+            --query primaryConnectionString \
+            --output tsv)
+
+          if [ -z "$CONNECTION_STRING" ]; then
+            echo "::error::Could not retrieve connection string. Make sure the Communication Service exists and you have the required permissions."
+            exit 1
+          fi
+
+          # Mask the connection string so it never appears in plain text in logs
+          echo "::add-mask::$CONNECTION_STRING"
+          echo "connection_string=$CONNECTION_STRING" >> "$GITHUB_OUTPUT"
+
+      - name: Send test email
+        env:
+          CONNECTION_STRING: ${{ steps.get_connection_string.outputs.connection_string }}
+          EMAIL_BODY: |
+            Hello,
+
+            This is a test email sent from Azure Communication Service.
+
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Triggered by: ${{ github.actor }}
+            Timestamp: __TIMESTAMP__
+
+            If you received this message, the Azure Communication Service email feature is working correctly.
+
+            Regards,
+            Azure Communication Service Playground
+        run: |
+          BODY="${EMAIL_BODY//__TIMESTAMP__/$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
+          az communication email send \
+            --connection-string "$CONNECTION_STRING" \
+            --sender "${{ inputs.sender_address }}" \
+            --to "${{ inputs.recipient_email }}" \
+            --subject "${{ inputs.subject }}" \
+            --text "$BODY"
+
+      - name: Report result
+        run: |
+          echo "### Test Email Sent ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **From** | ${{ inputs.sender_address }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **To** | ${{ inputs.recipient_email }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Subject** | ${{ inputs.subject }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | ${{ inputs.communication_service_name }} |" >> "$GITHUB_STEP_SUMMARY"

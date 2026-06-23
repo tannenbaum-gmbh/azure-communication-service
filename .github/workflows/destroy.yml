@@ -1,0 +1,67 @@
+name: Destroy Azure Communication Service
+
+# Deletes the resource group (and all contained resources) that was created by
+# the deploy workflow. Authenticates with Azure using OIDC.
+#
+# Prerequisites (GitHub repository secrets):
+#   AZURE_CLIENT_ID       – Application (client) ID of the Entra ID app registration.
+#   AZURE_TENANT_ID       – Azure AD / Entra ID tenant ID.
+#   AZURE_SUBSCRIPTION_ID – Target Azure subscription ID.
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: 'Azure Resource Group name to delete'
+        required: true
+        type: string
+        default: 'rg-acs-playground'
+      confirm_deletion:
+        description: 'Type "delete" to confirm you want to remove all resources'
+        required: true
+        type: string
+
+permissions:
+  id-token: write   # Required for OIDC token exchange
+  contents: read    # Required to checkout the repository
+
+jobs:
+  destroy:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate confirmation input
+        run: |
+          if [ "${{ inputs.confirm_deletion }}" != "delete" ]; then
+            echo "::error::Deletion not confirmed. Please type 'delete' in the confirm_deletion input."
+            exit 1
+          fi
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check resource group exists
+        id: check_rg
+        run: |
+          EXISTS=$(az group exists --name "${{ inputs.resource_group }}")
+          echo "exists=$EXISTS" >> "$GITHUB_OUTPUT"
+
+      - name: Delete Resource Group
+        if: steps.check_rg.outputs.exists == 'true'
+        run: |
+          echo "Deleting resource group: ${{ inputs.resource_group }}"
+          az group delete \
+            --name "${{ inputs.resource_group }}" \
+            --yes
+          echo "Resource group '${{ inputs.resource_group }}' deleted successfully." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resource group not found
+        if: steps.check_rg.outputs.exists == 'false'
+        run: |
+          echo "::warning::Resource group '${{ inputs.resource_group }}' does not exist. Nothing to delete."
+          echo "Resource group '${{ inputs.resource_group }}' was not found. Nothing to delete." >> "$GITHUB_STEP_SUMMARY"
