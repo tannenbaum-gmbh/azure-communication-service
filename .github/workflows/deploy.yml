@@ -24,12 +24,12 @@ on:
         type: string
         default: 'westeurope'
       communication_service_name:
-        description: 'Override Azure Communication Service name (leave blank for param-file default)'
+        description: 'Override Azure Communication Service name (leave blank for deterministic unique default)'
         required: false
         type: string
         default: ''
       email_service_name:
-        description: 'Override Email Communication Service name (leave blank for param-file default)'
+        description: 'Override Email Communication Service name (leave blank for deterministic unique default)'
         required: false
         type: string
         default: ''
@@ -66,13 +66,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          PARAM_ARGS=(--parameters infra/main.bicepparam)
-          if [ -n "${{ inputs.communication_service_name }}" ]; then
-            PARAM_ARGS+=(--parameters "communicationServiceName=${{ inputs.communication_service_name }}")
+          to_letter() {
+            printf "\\$(printf '%03o' "$((97 + $1))")"
+          }
+
+          SUBSCRIPTION_HASH=$(printf '%s' "${{ secrets.AZURE_SUBSCRIPTION_ID }}" | sha256sum | awk '{print $1}')
+          NAME_SUFFIX="$(
+            to_letter "$((16#${SUBSCRIPTION_HASH:0:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:2:2} % 26))"
+            to_letter "$((16#${SUBSCRIPTION_HASH:4:2} % 26))"
+          )"
+
+          DEFAULT_COMMUNICATION_SERVICE_NAME="acs-playground-${NAME_SUFFIX}"
+          DEFAULT_EMAIL_SERVICE_NAME="ecs-playground-${NAME_SUFFIX}"
+
+          COMMUNICATION_SERVICE_NAME="${{ inputs.communication_service_name }}"
+          EMAIL_SERVICE_NAME="${{ inputs.email_service_name }}"
+
+          if [ -z "$COMMUNICATION_SERVICE_NAME" ]; then
+            COMMUNICATION_SERVICE_NAME="$DEFAULT_COMMUNICATION_SERVICE_NAME"
           fi
-          if [ -n "${{ inputs.email_service_name }}" ]; then
-            PARAM_ARGS+=(--parameters "emailServiceName=${{ inputs.email_service_name }}")
+          if [ -z "$EMAIL_SERVICE_NAME" ]; then
+            EMAIL_SERVICE_NAME="$DEFAULT_EMAIL_SERVICE_NAME"
           fi
+
+          PARAM_ARGS=(
+            --parameters infra/main.bicepparam
+            --parameters "communicationServiceName=${COMMUNICATION_SERVICE_NAME}"
+            --parameters "emailServiceName=${EMAIL_SERVICE_NAME}"
+          )
 
           az deployment group create \
             --name "acs-deployment-${{ github.run_number }}" \

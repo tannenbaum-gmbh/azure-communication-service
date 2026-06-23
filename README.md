@@ -87,6 +87,7 @@ az deployment group create \
 ```
 
 Or trigger the **Deploy Azure Communication Service** GitHub Actions workflow from the Actions tab.
+When workflow name overrides are left blank, it derives deterministic defaults by appending a 3-letter hash-based suffix from the subscription ID (for example, `acs-playground-abc` and `ecs-playground-abc`).
 
 ### Parameters
 
