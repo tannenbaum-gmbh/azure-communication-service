@@ -50,6 +50,9 @@ parameters:
 pool:
   vmImage: 'ubuntu-latest'
 
+variables:
+  - group: ACS
+  
 steps:
   - task: AzureCLI@2
     displayName: 'Install Azure Communication CLI extension'
