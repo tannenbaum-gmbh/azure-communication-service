@@ -116,21 +116,16 @@ steps:
         # Mask the connection string in pipeline logs
         echo "##vso[task.setvariable variable=CONNECTION_STRING;issecret=true]$CONNECTION_STRING"
 
-        # Send the test email using a heredoc for the body
-        read -r -d '' EMAIL_BODY << HEREDOC || true
-Hello,
-
-This is a test email sent from Azure Communication Service.
-
-Pipeline: ${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECT}/_build/results?buildId=${BUILD_BUILDID}
-Triggered by: ${BUILD_REQUESTEDFOR}
-Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-
-If you received this message, the Azure Communication Service email feature is working correctly.
-
-Regards,
-Azure Communication Service Playground
-HEREDOC
+        # Send the test email using printf for the body
+        EMAIL_BODY=$(printf '%s\n\n%s\n\nPipeline: %s%s/_build/results?buildId=%s\nTriggered by: %s\nTimestamp: %s\n\n%s\n\nRegards,\nAzure Communication Service Playground' \
+          'Hello,' \
+          'This is a test email sent from Azure Communication Service.' \
+          "${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}" \
+          "${SYSTEM_TEAMPROJECT}" \
+          "${BUILD_BUILDID}" \
+          "${BUILD_REQUESTEDFOR}" \
+          "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
+          'If you received this message, the Azure Communication Service email feature is working correctly.')
 
         echo "Sending test email to '${{ parameters.recipientEmail }}'..."
         az communication email send \
